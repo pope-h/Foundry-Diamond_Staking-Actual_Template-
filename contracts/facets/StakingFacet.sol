@@ -1,104 +1,106 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.0;
 
+// Importing required libraries
 import {LibDiamond} from "../libraries/LibDiamond.sol";
 import {LibAppStorage} from "../libraries/LibAppStorage.sol";
-import {SafeMath} from "../libraries/SafeMath.sol";
 
+// StakingFacet contract
 contract StakingFacet {
+    // Event to be emitted when a stake is made
     event Stake(address _staker, uint256 _amount, uint256 _timeStaked);
-    LibAppStorage.Layout internal l;
-    using SafeMath for *;
 
+    // Instance of LibAppStorage.Layout
+    LibAppStorage.Layout internal l;
+
+    // Custom error for insufficient balance
     error NoMoney(uint256 balance);
 
+    // Function to stake a certain amount
     function stake(uint256 _amount) public {
-
-        updatePool();
-
+        // Check if the amount is greater than 0 and the sender is not the zero address
         require(_amount > 0, "NotZero");
         require(msg.sender != address(0));
+
+        // Check if the sender has enough balance to stake
         uint256 balance = l.balances[msg.sender];
         require(balance >= _amount, "NotEnough");
-        //transfer out tokens to self
+
+        // Transfer tokens from the sender to this contract
         LibAppStorage._transferFrom(msg.sender, address(this), _amount);
-        //do staking math
+        
+        // Update the staking details for the sender
         LibAppStorage.UserStake storage s = l.userDetails[msg.sender];
         s.stakedTime = block.timestamp;
         s.amount += _amount;
+        uint256 IWOWTotalSupply = IWOW(l.rewardToken).totalSupply();
+        s.allocatedPoints = (s.amount * IWOWTotalSupply / l.totalSupply); // l.totalSupply is totalAllocationPossible
+
+        // Emit the Stake event
         emit Stake(msg.sender, _amount, block.timestamp);
     }
 
+    // Function to check the pending rewards for a staker
     function checkRewards(
-        address _staker
     ) public view returns (uint256 userPendingRewards) {
+        // Get the staking details for the staker
+        LibAppStorage.UserStake memory s = l.userDetails[msg.sender];
 
-        LibAppStorage.UserStake memory s = l.userDetails[_staker];
+        // If the staker has staked before, calculate the pending rewards
         if (s.stakedTime > 0) {
-            uint256 duration = block.timestamp - s.stakedTime;
-            uint256 rewardPerYear = s.amount * LibAppStorage.APY;
-            uint256 reward = rewardPerYear / 3154e7;
-            userPendingRewards = reward * duration;
+            uint256 totalRewards = calculatePendingRewards();
+
+            // Distribute the rewards evenly among all stakers
+            userPendingRewards = totalRewards / (s.allocatedPoints * 2);
         }
     }
 
+    // Function to calculate the reward per second
     function rewardPerSec () internal pure returns(uint256) {
-        uint amount = LibAppStorage.REWARD_PER_SEC.mul(LibAppStorage.REWARD_RATE).div(LibAppStorage.RATE_TOTAL_PRECISION).div(12);
+        uint amount = LibAppStorage.ACC_REWARD_PRECISION * LibAppStorage.APY / 3154e7; // 1e18 * APY / seconds in a year
         return amount;
     }
 
-   function updatePool () internal {
+    // Function to calculate the pending rewards for a user
+   function calculatePendingRewards() internal view returns (uint256) {
+        // Get the staking details for the user
+        LibAppStorage.UserStake storage s = l.userDetails[msg.sender];
+        uint256 timeElapsed = block.timestamp - (s.lastUnstakeTime > 0 ? s.lastUnstakeTime : s.stakedTime);
+        return timeElapsed * rewardPerSec() * s.amount;
+    }
 
-        LibAppStorage.UserStake memory s = l.userDetails[msg.sender];
-
-        // check that block.timeStamp is gt lastTimeStaked
-        if(block.timestamp > l.lastStakedTime) {
-
-            //geting rewardtoken totalSupply 
-            uint256 reward_tot_supply = IWOW(l.rewardToken).totalSupply();
-
-            if(reward_tot_supply > 0 && l.totalAllocatedPoints > 0){
-                uint256 multiplier = block.timestamp.sub(l.lastStakedTime);
-
-                uint256 calculateReward = multiplier.mul(rewardPerSec()).mul(s.allocatedPoints).div(l.totalAllocatedPoints);
-
-                l.accRewardPerShare = l.accRewardPerShare.add((calculateReward.mul(LibAppStorage.ACC_REWARD_PRECISION)).div(reward_tot_supply));
-            }
-
-            l.lastStakedTime = block.timestamp;
-
-        }
-   }
-
+    // Event to be emitted for debugging
     event y(uint);
     event Address(address _address, address _address2);
 
+    // Function to unstake a certain amount
     function unstake(address _from, uint256 _amount) public {
-
-        updatePool();
-
+        // Get the staking details for the sender
         LibAppStorage.UserStake storage s = l.userDetails[msg.sender];
-        uint256 reward = checkRewards(msg.sender);
+        uint256 _reward = checkRewards();
         // require(s.amount >= _amount, "NoMoney");
 
+        // Check if the sender has enough staked amount to unstake
         if (s.amount < _amount) revert NoMoney(s.amount);
-        //unstake
+        // Unstake the amount
         l.balances[address(this)] -= _amount;
         s.amount -= _amount;
-        s.stakedTime = s.amount > 0 ? block.timestamp : 0;
+        s.lastUnstakeTime = block.timestamp;
         LibAppStorage._transferFrom(address(this), msg.sender, _amount);
-        //check rewards
 
-        emit y(reward);
+        // Check the rewards
+        emit y(_reward);
         emit Address(_from, msg.sender);
-        if (reward > 0) {
+        if (_reward > 0) {
+            // Transfer the rewards to the sender
             // bool success = IWOW(l.rewardToken).transfer(address(this), reward);
-            bool success = IWOW(l.rewardToken).transferFrom(_from, msg.sender, reward);
+            bool success = IWOW(l.rewardToken).transferFrom(_from, msg.sender, _reward);
             require(success, "Transfer failed");
         }
     }
 }
 
+// Interface for the reward token
 interface IWOW {
     function mint(address _to, uint256 _amount) external;
     function transfer(address recipient, uint256 amount) external returns (bool);

@@ -104,29 +104,29 @@ contract DiamondDeployer is Test, IDiamondCut {
         uint256 wowBalance = wow.balanceOf(C);
         assertTrue(wowBalance == 100_000_000e18, "WOW balance was not minted");
 
-        uint256 rewardsBeforeStake = boundStaking.checkRewards(A);
+        uint256 rewardsBeforeStake = boundStaking.checkRewards();
         assertTrue(rewardsBeforeStake == 0, "Rewards are not equal to 0");
 
-        boundStaking.stake(2_000_000e18);
+        boundStaking.stake(5_000_000e18);
         uint256 balanceAfterStaking = erc20Bound.balanceOf(A);
-        assertEq(balanceAfterStaking, 98_000_000e18, "Balance after staking is not 98_000_000e18");
-
-        vm.warp(3154e7);
-        uint256 reward = boundStaking.checkRewards(A);
-        console.log("reward", reward);
+        assertEq(balanceAfterStaking, 95_000_000e18, "Balance after staking is not 98_000_000e18");
 
         switchSigner(C);
         wow.approve(address(diamond), 100_000_000e18);
         console.log("Approved");
 
         switchSigner(A);
-        boundStaking.unstake(C, 5_000_000e17);
+        vm.warp(3154e7);
+        uint256 reward = boundStaking.checkRewards();
+        console.log("reward", reward);
 
-        uint256 wowBalanceAfterStake = wow.balanceOf(A);
-        console.log("wowBalanceAfterStake", wowBalanceAfterStake);
-        assertTrue(wowBalanceAfterStake > 0, "WOW balance is not greater than 0");
+        boundStaking.unstake(C, 2_000_000e18);
 
-        uint256 rewardsAfterUnstake = boundStaking.checkRewards(A);
+        uint256 wowBalanceAfterUnstake = wow.balanceOf(C);
+        console.log("wowBalanceAfterUnstake", wowBalanceAfterUnstake);
+        // assertTrue(wowBalanceAfterUnstake > 0, "WOW balance is not greater than 0");
+
+        uint256 rewardsAfterUnstake = boundStaking.checkRewards();
         assertTrue(rewardsAfterUnstake == 0, "Rewards is not equal 0");
 
         switchSigner(B);

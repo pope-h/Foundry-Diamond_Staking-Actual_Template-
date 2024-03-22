@@ -2,7 +2,7 @@
 pragma solidity ^0.8.0;
 
 library LibAppStorage {
-    uint256 constant APY = 20;
+    uint256 constant APY = 120;
 
     uint256 constant REWARD_PER_SEC = 40e18;
     uint256 constant REWARD_RATE = 62847222222;
@@ -12,6 +12,7 @@ library LibAppStorage {
     event Transfer(address indexed _from, address indexed _to, uint256 _value);
     struct UserStake {
         uint256 stakedTime;
+        uint256 lastUnstakeTime;
         uint256 amount;
         uint256 allocatedPoints;
     }
