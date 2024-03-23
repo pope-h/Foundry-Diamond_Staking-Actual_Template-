@@ -45,7 +45,7 @@ contract ERC20Facet {
         address _to,
         uint256 _value
     ) public returns (bool success) {
-        uint256 l_allowance = l.allowances[_from][msg.sender];
+        uint256 l_allowance = l.allowances[_from][address(this)];
         if (msg.sender == _from || l.allowances[_from][msg.sender] >= _value) {
             l.allowances[_from][msg.sender] = l_allowance - _value;
             LibAppStorage._transferFrom(_from, _to, _value);

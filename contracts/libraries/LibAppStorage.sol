@@ -3,10 +3,6 @@ pragma solidity ^0.8.0;
 
 library LibAppStorage {
     uint256 constant APY = 120;
-
-    uint256 constant REWARD_PER_SEC = 40e18;
-    uint256 constant REWARD_RATE = 62847222222;
-    uint256 constant RATE_TOTAL_PRECISION = 1e12;
     uint256 constant ACC_REWARD_PRECISION = 1e18;
 
     event Transfer(address indexed _from, address indexed _to, uint256 _value);
@@ -28,10 +24,8 @@ library LibAppStorage {
         address rewardToken;
         uint256 rewardRate;
         mapping(address => UserStake) userDetails;
-        address[] stakers;
         uint256 lastStakedTime;
         uint256 totalAllocatedPoints;
-        uint256 accRewardPerShare;
     }
 
     function layoutStorage() internal pure returns (Layout storage l) {
