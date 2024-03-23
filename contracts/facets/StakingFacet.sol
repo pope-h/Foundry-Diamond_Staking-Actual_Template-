@@ -7,8 +7,11 @@ import {LibAppStorage} from "../libraries/LibAppStorage.sol";
 
 // StakingFacet contract
 contract StakingFacet {
-    // Event to be emitted when a stake is made
+
+    // Events
     event Stake(address _staker, uint256 _amount, uint256 _timeStaked);
+    event Unstake(address _unstaker, uint256 _amount, uint256 _timeStaked);
+    event Claim(address _claimer, uint256 _amount, uint256 _timeStaked);
 
     // Instance of LibAppStorage.Layout
     LibAppStorage.Layout internal l;
@@ -21,20 +24,22 @@ contract StakingFacet {
         // Check if the amount is greater than 0 and the sender is not the zero address
         require(_amount > 0, "NotZero");
         require(msg.sender != address(0));
+        //For future development, we can add a check to see if user already hit the max stake limit
 
         // Check if the sender has enough balance to stake
         uint256 balance = l.balances[msg.sender];
         require(balance >= _amount, "NotEnough");
 
-        // Transfer tokens from the sender to this contract
-        LibAppStorage._transferFrom(msg.sender, address(this), _amount);
-        
-        // Update the staking details for the sender
         LibAppStorage.UserStake storage s = l.userDetails[msg.sender];
-        s.stakedTime = block.timestamp;
-        s.amount += _amount;
-        uint256 IWOWTotalSupply = IWOW(l.rewardToken).totalSupply();
-        s.allocatedPoints = (s.amount * IWOWTotalSupply / l.totalSupply); // l.totalSupply is totalAllocationPossible
+        if (s.amount > 0) {
+            uint256 pending = (s.amount * l.accTokenPerShare / LibAppStorage.RATE_TOTAL_PRECISION) - s.rewardDebt;
+            LibAppStorage._transferFrom(msg.sender, address(this), pending);
+        }
+
+        s.amount = s.amount + _amount;
+        LibAppStorage._transferFrom(msg.sender, address(this), _amount);
+        l.totalStaked += _amount;
+        s.rewardDebt = s.amount * l.accTokenPerShare / LibAppStorage.RATE_TOTAL_PRECISION;
 
         // Emit the Stake event
         emit Stake(msg.sender, _amount, block.timestamp);
@@ -42,61 +47,62 @@ contract StakingFacet {
 
     // Function to check the pending rewards for a staker
     function checkRewards(
-    ) public view returns (uint256 userPendingRewards) {
-        // Get the staking details for the staker
-        LibAppStorage.UserStake memory s = l.userDetails[msg.sender];
+    ) public returns (uint256 userPendingRewards) {
+        LibAppStorage.UserStake storage s = l.userDetails[msg.sender];
+        updatePool();
 
-        // If the staker has staked before, calculate the pending rewards
-        if (s.stakedTime > 0) {
-            uint256 totalRewards = calculatePendingRewards();
-
-            // Distribute the rewards evenly among all stakers
-            userPendingRewards = totalRewards / (s.allocatedPoints * 2);
-        }
+        userPendingRewards = (s.amount * l.accTokenPerShare / LibAppStorage.RATE_TOTAL_PRECISION) - s.rewardDebt;
     }
 
     // Function to calculate the reward per second
     function rewardPerSec () internal pure returns(uint256) {
-        uint amount = LibAppStorage.ACC_REWARD_PRECISION * LibAppStorage.APY / 3154e7; // 1e18 * APY / seconds in a year
-        return amount;
+        uint RPS = (LibAppStorage.ACC_REWARD_PRECISION * LibAppStorage.APY) / 31556952; // 1e18 * APY / seconds in a year
+        return RPS;
     }
 
-    // Function to calculate the pending rewards for a user
-   function calculatePendingRewards() internal view returns (uint256) {
-        // Get the staking details for the user
-        LibAppStorage.UserStake storage s = l.userDetails[msg.sender];
-        uint256 timeElapsed = block.timestamp - (s.lastUnstakeTime > 0 ? s.lastUnstakeTime : s.stakedTime);
-        return timeElapsed * rewardPerSec() * s.amount;
+    function updatePool() internal {
+        if (block.timestamp <= l.lastRewardTime) {
+            return;
+        }
+        if (l.totalStaked == 0) {
+            l.lastRewardTime = block.timestamp;
+            return;
+        }
+        uint256 timeElapsed = block.timestamp - l.lastRewardTime;
+        uint256 tokenReward = timeElapsed * rewardPerSec();
+        l.accTokenPerShare = l.accTokenPerShare + ((tokenReward * LibAppStorage.RATE_TOTAL_PRECISION) / l.totalStaked);
+        l.lastRewardTime = block.timestamp;
     }
-
-    // Event to be emitted for debugging
-    event y(uint);
-    event Address(address _address, address _address2);
 
     // Function to unstake a certain amount
-    function unstake(address _from, uint256 _amount) public {
+    function unstake(uint256 _amount) public {
         // Get the staking details for the sender
         LibAppStorage.UserStake storage s = l.userDetails[msg.sender];
-        uint256 _reward = checkRewards();
-        // require(s.amount >= _amount, "NoMoney");
 
         // Check if the sender has enough staked amount to unstake
         if (s.amount < _amount) revert NoMoney(s.amount);
-        // Unstake the amount
-        l.balances[address(this)] -= _amount;
-        s.amount -= _amount;
-        s.lastUnstakeTime = block.timestamp;
-        LibAppStorage._transferFrom(address(this), msg.sender, _amount);
+        updatePool();
 
-        // Check the rewards
-        emit y(_reward);
-        emit Address(_from, msg.sender);
-        if (_reward > 0) {
-            // Transfer the rewards to the sender
-            // bool success = IWOW(l.rewardToken).transfer(address(this), reward);
-            bool success = IWOW(l.rewardToken).transferFrom(_from, msg.sender, _reward);
-            require(success, "Transfer failed");
-        }
+        // Unstake the amount
+        LibAppStorage._transferFrom(address(this), msg.sender, _amount);
+        s.amount = s.amount - _amount;
+
+        l.totalStaked = l.totalStaked - _amount;
+
+        emit Unstake(msg.sender, _amount, block.timestamp);
+    }
+
+    function claimReward(address _from) public {
+        LibAppStorage.UserStake storage s = l.userDetails[msg.sender];
+        updatePool();
+
+        uint256 pending = (s.amount * l.accTokenPerShare / LibAppStorage.RATE_TOTAL_PRECISION) - s.rewardDebt;
+        require(pending > 0, "claimReward: No reward");
+        bool success = IWOW(l.rewardToken).transferFrom(_from, msg.sender, pending);
+        require(success, "Transfer failed");
+
+        s.rewardDebt = s.amount * l.accTokenPerShare / LibAppStorage.RATE_TOTAL_PRECISION;
+        emit Stake(msg.sender, pending, block.timestamp);
     }
 }
 
@@ -107,3 +113,6 @@ interface IWOW {
     function transferFrom(address sender, address recipient, uint256 amount) external returns (bool);
     function totalSupply() external returns (uint256);
 }
+
+// address(this) is the address of the contract i.e. the diamond
+// msg.sender is the address of the user i.e. the switchSigner used

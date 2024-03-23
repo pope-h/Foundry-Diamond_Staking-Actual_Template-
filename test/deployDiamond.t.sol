@@ -27,10 +27,10 @@ contract DiamondDeployer is Test, IDiamondCut {
 
     address A = address(0xa);
     address B = address(0xb);
-    address C = address(0xc);
+    address TokensHolder = address(0xc);
 
     StakingFacet boundStaking;
-    ERC20Facet erc20Bound;
+    ERC20Facet boundERC20;
 
     function setUp() public {
         //deploy facets
@@ -85,56 +85,52 @@ contract DiamondDeployer is Test, IDiamondCut {
         diamond.setRewardToken(address(wow));
         A = mkaddr("staker a");
         B = mkaddr("staker b");
-        C = mkaddr("WOW Owner");
+        TokensHolder = mkaddr("WOW Owner");
 
         //mint test tokens
-        ERC20Facet(address(diamond)).mintTo(A);
-        ERC20Facet(address(diamond)).mintTo(B);
-        wow.mint(C, 100_000_000e18);
+        ERC20Facet(address(diamond)).mintTo(TokensHolder);
+        wow.mint(TokensHolder, 100_000_000e18);
 
         boundStaking = StakingFacet(address(diamond));
-        erc20Bound = ERC20Facet(address(diamond));
+        boundERC20 = ERC20Facet(address(diamond));
     }
 
     function testMint() public {
-        switchSigner(A);
-        uint256 erc20FacetMinted = erc20Bound.balanceOf(A);
+        switchSigner(TokensHolder);
+        uint256 erc20FacetMinted = boundERC20.balanceOf(TokensHolder);
         assertTrue(erc20FacetMinted == 100_000_000e18, "ERC20Facet minted is not equal to 100_000_000e18");
 
-        switchSigner(C);
         uint256 wowMinted = wow.totalSupply();
         assertTrue(wowMinted == 100_000_000e18, "WOW minted is not equal to 100_000_000e18");
     }
 
     function testApproval() public {
-        switchSigner(A);
-        erc20Bound.approve(C, 100_000_000e18);
-        uint256 allowance = erc20Bound.allowance(A, C);
+        switchSigner(TokensHolder);
+        boundERC20.approve(B, 100_000_000e18);
+        uint256 allowance = boundERC20.allowance(TokensHolder, B);
         assertTrue(allowance == 100_000_000e18, "Allowance is not equal to 100_000_000e18");
     }
 
     function testTransferFrom() public {
-        switchSigner(A);
+        switchSigner(TokensHolder);
 
-        erc20Bound.approve(address(diamond), 100_000_000e18);
-        erc20Bound.transferFrom(A, B, 40_000_000e18);
+        boundERC20.approve(address(diamond), 100_000_000e18);
+        boundERC20.transferFrom(TokensHolder, B, 40_000_000e18);
 
-        uint256 balanceAfterTransfer = erc20Bound.balanceOf(B);
-        // Take note that 100e18 was initially minted to B
-        assertTrue(balanceAfterTransfer == 140_000_000e18, "Balance after transfer is not equal to 140_000_000e18");
+        uint256 balanceAfterTransfer = boundERC20.balanceOf(B);
+        assertTrue(balanceAfterTransfer == 40_000_000e18, "Balance after transfer is not equal to 40_000_000e18");
     }
 
     function testTransfer() public {
-        switchSigner(A);
-        erc20Bound.transfer(B, 40_000_000e18);
+        switchSigner(TokensHolder);
+        boundERC20.transfer(B, 40_000_000e18);
 
-        uint256 balanceAfterTransfer = erc20Bound.balanceOf(A);
-        // Take note that 100e18 was initially minted to B
+        uint256 balanceAfterTransfer = boundERC20.balanceOf(TokensHolder);
         assertTrue(balanceAfterTransfer == 60_000_000e18, "Balance after transfer is not equal to 60_000_000e18");
     }
 
     function testTransferRevert() public {
-        try erc20Bound.transfer(B, 100_000_000e18) {
+        try boundERC20.transfer(B, 100_000_000e18) {
             // If the transfer doesn't revert, fail the test
             assertTrue(false, "ERC20: transfer did not revert as expected");
         } catch {
@@ -143,43 +139,35 @@ contract DiamondDeployer is Test, IDiamondCut {
         }
     }
 
-    function testValuesBeforeStake() public {
-        switchSigner(A);
-
-        uint256 balanceBeforeStaking = erc20Bound.balanceOf(A);
-        assertTrue(balanceBeforeStaking == 100_000_000e18, "Balance before staking is not equal to 100_000_000e18");
-
-        uint256 wowBalance = wow.balanceOf(C);
-        assertTrue(wowBalance == 100_000_000e18, "WOW balance was not minted");
-
-        uint256 rewardsBeforeStake = boundStaking.checkRewards();
-        assertTrue(rewardsBeforeStake == 0, "Rewards are not equal to 0");
-    }
-
     function testStaking() public {
-        switchSigner(A);
+        switchSigner(TokensHolder);
 
-        boundStaking.stake(5_000_000e18);
-        uint256 balanceAfterStaking = erc20Bound.balanceOf(A);
-        assertEq(balanceAfterStaking, 95_000_000e18, "Balance after staking is not 98_000_000e18");
-
-        switchSigner(C);
         wow.approve(address(diamond), 100_000_000e18);
-        console.log("Approved");
+        boundERC20.approve(address(diamond), 100_000_000e18);
 
-        switchSigner(A);
+        boundERC20.transferFrom(TokensHolder, B, 40_000_000e18);
+
+        switchSigner(B);
+
+        boundStaking.stake(15_000_000e18);
+        uint256 balanceAfterStaking = boundERC20.balanceOf(B);
+        assertEq(balanceAfterStaking, 25_000_000e18, "Balance after staking is not 25_000_000e18");
+
         vm.warp(3154e7);
         uint256 reward = boundStaking.checkRewards();
         console.log("reward", reward);
 
-        boundStaking.unstake(C, 2_000_000e18);
+        boundStaking.unstake(10_000_000e18);
 
-        uint256 wowBalanceAfterUnstake = wow.balanceOf(C);
+        uint256 balanceAfterUnstaking = boundERC20.balanceOf(B);
+        assertEq(balanceAfterUnstaking, 35_000_000e18, "Balance after unstaking is not 35_000_000e18");
+
+        uint256 wowBalanceAfterUnstake = wow.balanceOf(B);
         console.log("wowBalanceAfterUnstake", wowBalanceAfterUnstake);
-        // assertTrue(wowBalanceAfterUnstake > 0, "WOW balance is not greater than 0");
+        assertTrue(wowBalanceAfterUnstake == 0, "WOWToken was not touched as only ERC20 was unstaked");
 
         uint256 rewardsAfterUnstake = boundStaking.checkRewards();
-        assertTrue(rewardsAfterUnstake == 0, "Rewards is not equal 0");
+        assertTrue(rewardsAfterUnstake > 0, "Something is wrong with reward distribution");
 
         bytes32 value = vm.load(
             address(diamond),
@@ -189,74 +177,179 @@ contract DiamondDeployer is Test, IDiamondCut {
         console.log(decodevalue);
     }
 
-    function testUnstake() public {
-        switchSigner(A);
+    function testMultipleStakers() public {
+        switchSigner(TokensHolder);
 
+        wow.approve(address(diamond), 100_000_000e18);
+        boundERC20.approve(address(diamond), 100_000_000e18);
+
+        boundERC20.transferFrom(TokensHolder, A, 20_000_000e18);
+        boundERC20.transferFrom(TokensHolder, B, 30_000_000e18);
+
+        switchSigner(A);
         boundStaking.stake(5_000_000e18);
 
-        switchSigner(C);
-        wow.approve(address(diamond), 100_000_000e18);
+        switchSigner(B);
+        boundStaking.stake(10_000_000e18);
+
+        vm.warp(31556952);
 
         switchSigner(A);
+        uint256 rewardA = boundStaking.checkRewards();
+        
+        boundStaking.claimReward(TokensHolder);
+
+        switchSigner(B);
+        uint256 rewardB = boundStaking.checkRewards();
+        console.log("rewardB", rewardB);
+
+        boundStaking.claimReward(TokensHolder);
+
+        uint256 wowBalanceAfterUnstakeA = wow.balanceOf(A);
+        console.log("wowBalanceAfterClaimA", wowBalanceAfterUnstakeA);
+        assertTrue(wowBalanceAfterUnstakeA == rewardA, "WOW balance was not sent to A");
+
+        uint256 wowBalanceAfterUnstakeB = wow.balanceOf(B);
+        console.log("wowBalanceAfterClaimB", wowBalanceAfterUnstakeB);
+        assertTrue(wowBalanceAfterUnstakeB == rewardB, "WOW balance was not sent B");
+    }
+
+    function testMultipleStakersRewardCheck() public {
+        switchSigner(TokensHolder);
+
+        wow.approve(address(diamond), 100_000_000e18);
+        boundERC20.approve(address(diamond), 100_000_000e18);
+
+        boundERC20.transferFrom(TokensHolder, A, 20_000_000e18);
+        boundERC20.transferFrom(TokensHolder, B, 30_000_000e18);
+
+        switchSigner(A);
+        boundStaking.stake(5_000_000e18);
+
+        switchSigner(B);
+        boundStaking.stake(10_000_000e18);
+
+        vm.warp(31556952);
+
+        switchSigner(A);
+        uint256 rewardA = boundStaking.checkRewards();
+        
+        boundStaking.claimReward(TokensHolder);
+
+        switchSigner(B);
+        uint256 rewardB = boundStaking.checkRewards();
+
+        boundStaking.claimReward(TokensHolder);
+
+        assertTrue(rewardA != rewardB, "Reward should be equal but they staked different values, please check");
+    }
+
+    function testUnstake() public {
+        switchSigner(TokensHolder);
+
+        wow.approve(address(diamond), 100_000_000e18);
+        boundERC20.approve(address(diamond), 100_000_000e18);
+
+        boundERC20.transferFrom(TokensHolder, A, 10_000_000e18);
+
+        switchSigner(A);
+
+        boundStaking.stake(6_000_000e18);
+        uint256 balanceAfterStaking = boundERC20.balanceOf(A);
+        assertEq(balanceAfterStaking, 4_000_000e18, "Balance after staking is not 4_000_000e18");
+
         vm.warp(3154e7);
         uint256 reward = boundStaking.checkRewards();
         console.log("reward", reward);
 
-        boundStaking.unstake(C, 2_000_000e18);
+        boundStaking.unstake(6_000_000e18);
+        uint256 balanceAfterUnstaking = wow.balanceOf(TokensHolder);
+        console.log("balanceAfterUnstaking", balanceAfterUnstaking);
 
         assertTrue(reward > 0, "Rewards is not greater than 0");
     }
 
-    function testUnstakedReward() public {
-        switchSigner(A);
+    function testClaimReward() public {
+        switchSigner(TokensHolder);
 
-        boundStaking.stake(5_000_000e18);
-
-        switchSigner(C);
         wow.approve(address(diamond), 100_000_000e18);
+        boundERC20.approve(address(diamond), 100_000_000e18);
+
+        boundERC20.transferFrom(TokensHolder, A, 40_000_000e18);
 
         switchSigner(A);
-        vm.warp(3154e7);
+
+        boundStaking.stake(10_000_000e18);
+
+        vm.warp(31556952);
         uint256 reward = boundStaking.checkRewards();
 
-        boundStaking.unstake(C, 2_000_000e18);
+        boundStaking.claimReward(TokensHolder);
+
+        uint256 wowBalanceAfterUnstake = wow.balanceOf(A);
+        assertTrue(wowBalanceAfterUnstake == reward, "WOW balance is not equal to fetched rewards");
+    }
+
+    function testPartialClaimReward() public {
+        switchSigner(TokensHolder);
+
+        wow.approve(address(diamond), 100_000_000e18);
+        boundERC20.approve(address(diamond), 100_000_000e18);
+
+        boundERC20.transferFrom(TokensHolder, A, 40_000_000e18);
+
+        switchSigner(A);
+
+        boundStaking.stake(10_000_000e18);
+
+        vm.warp(15778476);
+        uint256 reward = boundStaking.checkRewards();
+        console.log("reward", reward);
+
+        boundStaking.claimReward(TokensHolder);
 
         uint256 wowBalanceAfterUnstake = wow.balanceOf(A);
         assertTrue(wowBalanceAfterUnstake == reward, "WOW balance is not equal to fetched rewards");
     }
 
     function testUnstakedERCBalance() public {
-        switchSigner(A);
+        switchSigner(TokensHolder);
 
-        boundStaking.stake(5_000_000e18);
-
-        switchSigner(C);
         wow.approve(address(diamond), 100_000_000e18);
+        boundERC20.approve(address(diamond), 100_000_000e18);
+
+        boundERC20.transferFrom(TokensHolder, A, 40_000_000e18);
 
         switchSigner(A);
-        vm.warp(3154e7);
 
-        boundStaking.unstake(C, 2_000_000e18);
+        boundStaking.stake(20_000_000e18);
 
-        uint256 erc20BalanceAfterUnstake = erc20Bound.balanceOf(A);
-        assertTrue(erc20BalanceAfterUnstake == 97_000_000e18, "ERC20 balance is not equal to 97_000_000e18");
+        vm.warp(15778476);
+
+        boundStaking.unstake(5_000_000e18);
+
+        uint256 erc20BalanceAfterUnstake = boundERC20.balanceOf(A);
+        assertTrue(erc20BalanceAfterUnstake == 25_000_000e18, "ERC20 balance is not equal to 25_000_000e18");
     }
 
     function testRewardRevertAfterUnstake() public {
-        switchSigner(A);
+        switchSigner(TokensHolder);
 
+        wow.approve(address(diamond), 100_000_000e18);
+        boundERC20.approve(address(diamond), 100_000_000e18);
+
+        boundERC20.transferFrom(TokensHolder, A, 40_000_000e18);
+
+        switchSigner(A);
         boundStaking.stake(5_000_000e18);
 
-        switchSigner(C);
-        wow.approve(address(diamond), 100_000_000e18);
-
-        switchSigner(A);
         vm.warp(3154e7);
 
-        boundStaking.unstake(C, 2_000_000e18);
+        vm.expectRevert(
+            abi.encodeWithSelector(StakingFacet.NoMoney.selector, 5_000_000e18)
+        );
 
-        uint256 rewardsAfterUnstake = boundStaking.checkRewards();
-        assertTrue(rewardsAfterUnstake == 0, "Rewards is not equal 0");
+        boundStaking.unstake(10_000_000e18);
     }
 
     function testNonStaker() public {
@@ -266,11 +359,11 @@ contract DiamondDeployer is Test, IDiamondCut {
             abi.encodeWithSelector(StakingFacet.NoMoney.selector, 0)
         );
 
-        boundStaking.unstake(C, 5_000_000e17);
+        boundStaking.unstake(5_000_000e17);
     }
 
     function testNoStakeToken() public {
-        switchSigner(C);
+        switchSigner(A);
 
         try boundStaking.stake(100_000_000e18) {
             // If the transfer doesn't revert, fail the test
@@ -282,7 +375,7 @@ contract DiamondDeployer is Test, IDiamondCut {
     }
 
     function testStakeWithZeroAmount() public {
-        switchSigner(C);
+        switchSigner(B);
 
         try boundStaking.stake(0) {
             // If the transfer doesn't revert, fail the test
@@ -291,6 +384,19 @@ contract DiamondDeployer is Test, IDiamondCut {
             // If the transfer reverts, pass the test
             assertTrue(true);
         }
+    }
+
+    function testValuesBeforeStake() public {
+        switchSigner(A);
+
+        uint256 balanceBeforeStaking = boundERC20.balanceOf(TokensHolder);
+        assertTrue(balanceBeforeStaking == 100_000_000e18, "Balance before staking is not equal to 100_000_000e18");
+
+        uint256 wowBalance = wow.balanceOf(TokensHolder);
+        assertTrue(wowBalance == 100_000_000e18, "WOW balance was not minted");
+
+        uint256 rewardsBeforeStake = boundStaking.checkRewards();
+        assertTrue(rewardsBeforeStake == 0, "Rewards are not equal to 0");
     }
 
     function generateSelectors(

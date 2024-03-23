@@ -3,13 +3,13 @@ pragma solidity ^0.8.0;
 
 library LibAppStorage {
     uint256 constant APY = 120;
-    uint256 constant ACC_REWARD_PRECISION = 1e18;
+    uint256 constant ACC_REWARD_PRECISION = 1000000000000000000;
+    uint256 constant RATE_TOTAL_PRECISION = 1000000000000;
 
     event Transfer(address indexed _from, address indexed _to, uint256 _value);
     struct UserStake {
-        uint256 stakedTime;
-        uint256 lastUnstakeTime;
         uint256 amount;
+        uint256 rewardDebt;
         uint256 allocatedPoints;
     }
     struct Layout {
@@ -22,10 +22,10 @@ library LibAppStorage {
         mapping(address => mapping(address => uint256)) allowances;
         //STAKING
         address rewardToken;
-        uint256 rewardRate;
         mapping(address => UserStake) userDetails;
-        uint256 lastStakedTime;
-        uint256 totalAllocatedPoints;
+        uint256 totalStaked;
+        uint256 accTokenPerShare;
+        uint256 lastRewardTime;
     }
 
     function layoutStorage() internal pure returns (Layout storage l) {
@@ -40,7 +40,7 @@ library LibAppStorage {
         uint256 _amount
     ) internal {
         Layout storage l = layoutStorage();
-        uint256 frombalances = l.balances[msg.sender];
+        uint256 frombalances = l.balances[_from]; // note that diamond is the _from
         require(
             frombalances >= _amount,
             "ERC20: Not enough tokens to transfer"
